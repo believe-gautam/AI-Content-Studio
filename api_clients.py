@@ -6,6 +6,8 @@ It handles the construction of API requests, sending them, and processing the
 responses, including robust error handling. This keeps the main pipeline logic
 clean and focused on orchestration rather than API specifics.
 """
+import os
+import shutil
 import requests
 import time
 import base64
@@ -32,12 +34,182 @@ except ImportError:
 
 
 # --- API Constants (As specified by user) ---
-GEMINI_TEXT_MODEL = "gemini-2.5-flash"
-GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts"
+GEMINI_TEXT_MODEL = "gemini-3.5-flash"  # 2.5 models are closed to new keys
+GEMINI_TTS_MODEL = "gemini-3.8-flash-lite-tts"
 WAVESPEED_POLL_URL = "https://api.wavespeed.ai/api/v3/predictions/{}/result"
 WAVESPEED_BASE_ENDPOINT = "https://api.wavespeed.ai/api/v3/{}"
 VEO_MODEL_ID = "veo-3.0-generate-preview" # For Vertex AI Video
-NANO_BANANA_IMAGE_MODEL = "gemini-2.5-flash-image-preview" # For Vertex AI Image
+NANO_BANANA_IMAGE_MODEL = "gemini-3.1-flash-image" # For Vertex AI Image
+
+# --- Free engines ---------------------------------------------------------
+OMNIROUTE_ENGINE = "OmniRoute"
+FREE_TTS_ENGINE = "Edge TTS (Free)"
+
+
+def omniroute_configured(config) -> bool:
+    return bool(config.get("OMNIROUTE_API_KEY") and config.get("OMNIROUTE_BASE_URL"))
+
+
+def omniroute_models(config) -> list:
+    raw = config.get("OMNIROUTE_MODEL") or "gemini/gemini-3.5-flash"
+    return [m.strip() for m in str(raw).split(",") if m.strip()]
+
+
+def omniroute_chat(config, prompt: str, system_prompt: str = None, as_json: bool = False, timeout: int = 300) -> str:
+    """Text generation through the local OmniRoute (OpenAI-compatible) router.
+
+    OMNIROUTE_MODEL may be one model/combo or a comma-separated list; each is tried in order.
+    """
+    base_url = config.get("OMNIROUTE_BASE_URL", "http://127.0.0.1:20128/api/v1").rstrip("/")
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    if as_json:
+        prompt = f"{prompt}\n\nRespond ONLY with valid JSON. No markdown fences, no commentary."
+    messages.append({"role": "user", "content": prompt})
+    headers = {"Authorization": f"Bearer {config.get('OMNIROUTE_API_KEY', '')}", "Content-Type": "application/json"}
+    errors = []
+    for round_no in range(2):  # second round after a pause, in case every model was rate limited
+        if round_no:
+            time.sleep(20)
+        for model in omniroute_models(config):
+            logging.info(f"Generating text via OmniRoute ({model})...")
+            try:
+                response = requests.post(f"{base_url}/chat/completions", headers=headers,
+                                         json={"model": model, "messages": messages, "stream": False}, timeout=timeout)
+                if response.status_code != 200:
+                    raise RuntimeError(f"HTTP {response.status_code}: {response.text[:200]}")
+                text = (response.json().get("choices") or [{}])[0].get("message", {}).get("content") or ""
+                text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+                if not text:
+                    raise RuntimeError("empty answer")
+                if as_json:
+                    fenced = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, re.DOTALL)
+                    if fenced:
+                        text = fenced.group(1).strip()
+                return text
+            except Exception as e:
+                logging.warning(f"OmniRoute model {model} failed: {e}")
+                errors.append(f"{model}: {e}")
+    raise RuntimeError("OmniRoute text generation failed for every model. " + " | ".join(errors[-5:]))
+
+
+# Gemini voice names -> free Microsoft Edge neural voices.
+_EDGE_FEMALE = {"Kore", "Aoede", "Leda", "Zephyr", "Callirrhoe", "Autonoe", "Despina", "Erinome",
+                "Laomedeia", "Achernar", "Gacrux", "Pulcherrima", "Vindemiatrix", "Sulafat", "Rachel"}
+_EDGE_VOICE_MAP = {
+    "Kore": "en-US-AvaMultilingualNeural", "Aoede": "en-US-EmmaMultilingualNeural",
+    "Puck": "en-US-AndrewMultilingualNeural", "Charon": "en-US-BrianMultilingualNeural",
+    "Fenrir": "en-US-BrianMultilingualNeural", "Brian": "en-US-BrianMultilingualNeural",
+    "Rachel": "en-US-EmmaMultilingualNeural", "Drew": "en-US-AndrewMultilingualNeural",
+    "Callum": "en-US-BrianMultilingualNeural",
+}
+
+
+def edge_voice_for(voice: str, text: str = "") -> str:
+    """Pick an Edge voice. Urdu (Arabic script) and Hindi (Devanagari) get native voices."""
+    voice = (voice or "Kore").strip()
+    if re.match(r"^[a-z]{2,3}-[A-Z]{2}-\w+Neural$", voice):
+        return voice
+    female = voice in _EDGE_FEMALE or voice not in _EDGE_VOICE_MAP and voice not in {"Puck", "Charon", "Fenrir"}
+    if re.search(r"[؀-ۿ]", text):
+        return "ur-PK-UzmaNeural" if female else "ur-PK-AsadNeural"
+    if re.search(r"[ऀ-ॿ]", text):
+        return "hi-IN-SwaraNeural" if female else "hi-IN-MadhurNeural"
+    return _EDGE_VOICE_MAP.get(voice, "en-US-AvaMultilingualNeural" if female else "en-US-AndrewMultilingualNeural")
+
+
+def edge_tts_synthesize(script: str, output_path: str, tts_config: dict):
+    """Free text-to-speech using Microsoft Edge neural voices (no API key).
+
+    Podcast scripts with "Host:"/"Guest:" lines get one voice per speaker.
+    Writes WAV (24 kHz mono) unless output_path ends in .mp3.
+    """
+    import asyncio
+    import subprocess
+    import tempfile
+    import threading
+    import edge_tts
+
+    text = script.split('Text :')[-1].strip() if 'Text :' in script else script
+    host = tts_config.get("HOST_NAME", "Alex")
+    guest = tts_config.get("GUEST_NAME", "Maya")
+    voice1 = tts_config.get("SPEAKER1", "Kore")
+    voice2 = tts_config.get("SPEAKER2", "Puck")
+    multi = f"{host}:" in text and f"{guest}:" in text
+
+    # Build (voice, text) segments, merging consecutive lines of the same speaker.
+    segments = []
+    current_voice = voice1
+    for raw_line in text.split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if multi:
+            if line.startswith(f"{host}:"):
+                current_voice, line = voice1, line[len(host) + 1:].strip()
+            elif line.startswith(f"{guest}:"):
+                current_voice, line = voice2, line[len(guest) + 1:].strip()
+        if not line:
+            continue
+        if segments and segments[-1][0] == current_voice and len(segments[-1][1]) + len(line) < 3000:
+            segments[-1] = (current_voice, f"{segments[-1][1]}\n{line}")
+        else:
+            segments.append((current_voice, line))
+    if not segments:
+        raise RuntimeError("Free TTS: the script is empty.")
+    logging.info(f"Generating audio with free Edge TTS ({len(segments)} segment(s), multi-speaker={multi})...")
+
+    workdir = tempfile.mkdtemp(prefix="edge_tts_")
+    paths = [os.path.join(workdir, f"seg_{i:04d}.mp3") for i in range(len(segments))]
+
+    async def synth_all():
+        semaphore = asyncio.Semaphore(4)
+
+        async def synth(i, voice, seg_text):
+            async with semaphore:
+                last = None
+                for attempt in range(4):
+                    try:
+                        await edge_tts.Communicate(seg_text, edge_voice_for(voice, seg_text)).save(paths[i])
+                        if os.path.getsize(paths[i]) > 0:
+                            return
+                    except Exception as e:  # network hiccups are common; retry
+                        last = e
+                    await asyncio.sleep(2 * (attempt + 1))
+                raise RuntimeError(f"Free TTS failed on segment {i + 1}: {last}")
+
+        await asyncio.gather(*(synth(i, v, t) for i, (v, t) in enumerate(segments)))
+
+    # Run in a separate thread so this works whether or not an event loop is already running.
+    errors = []
+
+    def runner():
+        try:
+            asyncio.run(synth_all())
+        except Exception as e:
+            errors.append(e)
+    worker = threading.Thread(target=runner)
+    worker.start()
+    worker.join()
+    if errors:
+        raise RuntimeError(str(errors[0]))
+
+    list_file = os.path.join(workdir, "list.txt")
+    with open(list_file, "w", encoding="utf-8") as f:
+        for p in paths:
+            f.write(f"file '{p}'\n")
+    if output_path.lower().endswith(".mp3"):
+        codec = ["-c:a", "libmp3lame", "-b:a", "192k", "-f", "mp3"]
+    else:
+        codec = ["-c:a", "pcm_s16le", "-f", "wav"]
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", list_file,
+           "-ar", "24000", "-ac", "1", *codec, output_path]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    shutil.rmtree(workdir, ignore_errors=True)
+    if result.returncode != 0 or not os.path.exists(output_path):
+        raise RuntimeError(f"Free TTS: could not join audio: {result.stderr[-400:]}")
+    logging.info(f"Free Edge TTS audio saved to {output_path}")
 
 # --- Style Profiles: Single source of truth for all content styles ---
 STYLE_PROFILES = {
@@ -185,10 +357,26 @@ class GoogleClient:
             }
             self.text_model = genai.GenerativeModel(GEMINI_TEXT_MODEL, safety_settings=self.safety_settings)
 
-    def _generate_text(self, prompt: str, as_json=False) -> str:
-        """Dynamically routes text generation to Gemini, WaveSpeed, or Ollama."""
+    def _text_engine(self) -> str:
+        """Selected text engine; falls back to free OmniRoute when Gemini has no key."""
         engine = self.config.get("TEXT_ENGINE", "Gemini API")
-        
+        if engine == "Gemini API" and not self.api_key and omniroute_configured(self.config):
+            return OMNIROUTE_ENGINE
+        return engine
+
+    def _use_free_tts(self, tts_config: dict) -> bool:
+        engine = tts_config.get("AUDIO_ENGINE") or self.config.get("AUDIO_ENGINE", "Gemini API")
+        return engine == FREE_TTS_ENGINE or not self.api_key
+
+    def _generate_text(self, prompt: str, as_json=False) -> str:
+        """Dynamically routes text generation to OmniRoute, Gemini, WaveSpeed, or Ollama."""
+        engine = self._text_engine()
+
+        if engine == OMNIROUTE_ENGINE:
+            if not omniroute_configured(self.config):
+                raise ValueError("OmniRoute is selected but its API key is missing in Settings.")
+            return omniroute_chat(self.config, prompt, as_json=as_json)
+
         if engine == "Ollama":
             base_url = self.config.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip('/')
             model = self.config.get("OLLAMA_MODEL", "llama3")
@@ -253,8 +441,8 @@ class GoogleClient:
         elif language:
             language_instruction = f"All output text must be written in {language}."
 
-        engine = self.config.get("TEXT_ENGINE", "Gemini API")
-        
+        engine = self._text_engine()
+
         prompt = (
             f"You are a research analyst. Create a single, comprehensive summary on the topic '{topic}'. "
             f"Use Google Search to find key sub-topics, entities, and controversies. "
@@ -529,7 +717,7 @@ Generate the complete script now, ensuring all vocal directions match the '{cont
 
     @handle_api_errors
     def gemini_nanobanana_image(self, prompt: str, output_path: str):
-        logging.info(f"Generating image with Gemini API (gemini-2.5-flash-image-preview): '{prompt}'")
+        logging.info(f"Generating image with Gemini API ({NANO_BANANA_IMAGE_MODEL}): '{prompt}'")
         model = genai.GenerativeModel(NANO_BANANA_IMAGE_MODEL, safety_settings=self.safety_settings)
         response = model.generate_content(prompt)
         
@@ -571,6 +759,9 @@ Generate the complete script now, ensuring all vocal directions match the '{cont
 
     @handle_api_errors
     def generate_tts(self, script: str, output_path: str, tts_config: dict):
+        if self._use_free_tts(tts_config):
+            merged = {**self.config, **tts_config}
+            return edge_tts_synthesize(script, output_path, merged)
         logging.info("Generating audio with real Gemini TTS...")
         
         script_for_api = script.split('Text :')[-1].strip() if 'Text :' in script else script

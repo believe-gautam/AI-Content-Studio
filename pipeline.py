@@ -755,9 +755,17 @@ class Pipeline:
                 
                 else:
                     logging.info(f"Creating OVERLAY video with size {output_size}")
-                    if os.path.exists(bg_video_file): 
+                    if os.path.exists(bg_video_file):
                         inputs.extend(["-stream_loop", "-1", "-i", bg_video_file])
-                    else: 
+                    elif bg_mode == "Simple Background (Free)":
+                        # Free: slowly moving gradient in the brand colours, drawn by FFmpeg itself.
+                        def _hex(c, fallback):
+                            c = str(c or "").lstrip("#")
+                            return f"0x{c}" if re.fullmatch(r"[0-9a-fA-F]{6}", c) else fallback
+                        c0 = _hex(self.config.get("BRAND_PRIMARY_COLOR"), "0x1e1b4b")
+                        c1 = _hex(self.config.get("BRAND_SECONDARY_COLOR"), "0x0f172a")
+                        inputs.extend(["-f", "lavfi", "-i", f"gradients=s={output_size}:c0={c0}:c1={c1}:x0=0:y0=0:x1={output_size.split('x')[0]}:y1={output_size.split('x')[1]}:speed=0.004:r=25:d={audio_len}"])
+                    else:
                         inputs.extend(["-f", "lavfi", "-i", f"color=c=black:s={output_size}:d={audio_len}"])
                     
                     base_filter_chain = f"[{video_input_count}:v]scale={output_size},setsar=1[base_scaled]"

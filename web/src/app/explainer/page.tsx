@@ -30,8 +30,8 @@ export default function ExplainerModePage() {
   // Settings
   const [duration, setDuration] = useState("5 minutes");
   const [language, setLanguage] = useState("English");
-  const [audioEngine, setAudioEngine] = useState("WaveSpeed AI (ElevenLabs)");
-  const [voice, setVoice] = useState("Brian");
+  const [audioEngine, setAudioEngine] = useState("Edge TTS (Free)");
+  const [voice, setVoice] = useState("Kore");
   
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -105,7 +105,7 @@ export default function ExplainerModePage() {
           language: language,
           voice: voice,
           text_engine: "Gemini API",
-          audio_engine: audioEngine === "Gemini API" ? "Gemini API" : "WaveSpeed AI"
+          audio_engine: audioEngine === "WaveSpeed AI (ElevenLabs)" ? "WaveSpeed AI" : audioEngine
         })
       });
       
@@ -178,13 +178,14 @@ export default function ExplainerModePage() {
                   <div>
                     <label className="block text-[10px] font-bold text-zinc-500 mb-1.5 uppercase tracking-wider">TTS Engine</label>
                     <select value={audioEngine} onChange={e => setAudioEngine(e.target.value)} disabled={status === "processing"} className="modern-select text-sm py-2">
+                      <option value="Edge TTS (Free)" className="bg-black">Edge TTS (Free)</option>
                       <option value="WaveSpeed AI (ElevenLabs)" className="bg-black">ElevenLabs (Pro)</option>
                       <option value="Gemini API" className="bg-black">Gemini (Fast)</option>
                     </select>
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-zinc-500 mb-1.5 uppercase tracking-wider">Voice Actor</label>
-                    {audioEngine === "Gemini API" ? (
+                    {audioEngine !== "WaveSpeed AI (ElevenLabs)" ? (
                       <select value={voice} onChange={e => setVoice(e.target.value)} disabled={status === "processing"} className="modern-select text-sm py-2">
                         <option value="Kore" className="bg-black">Kore (Neutral)</option>
                         <option value="Aoede" className="bg-black">Aoede (Warm)</option>

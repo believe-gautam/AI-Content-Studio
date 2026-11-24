@@ -41,6 +41,9 @@ export interface StudioConfig {
   NEWS_API_KEY?: string;
   OLLAMA_BASE_URL?: string;
   OLLAMA_MODEL?: string;
+  OMNIROUTE_API_KEY?: string;
+  OMNIROUTE_BASE_URL?: string;
+  OMNIROUTE_MODEL?: string;
   PIXABAY_API_KEY?: string;
   PODCAST_LANGUAGE?: string;
   PODCAST_STYLE?: string;

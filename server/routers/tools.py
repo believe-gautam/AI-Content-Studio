@@ -7,7 +7,7 @@ import tempfile
 import uuid
 from server.core.security import copy_upload
 import pipeline
-from api_clients import STYLE_PROFILES, WaveSpeedClient, GoogleClient
+from api_clients import FREE_TTS_ENGINE, STYLE_PROFILES, WaveSpeedClient, GoogleClient
 from config import load_config, VOICE_OPTIONS
 
 router = APIRouter()
@@ -112,8 +112,10 @@ def generate_tts(req: TTSRequest):
         ws_key = config.get("WAVESPEED_API_KEY") or config.get("WAVESPEED_AI_KEY") or ""
         gemini_key = config.get("GEMINI_API_KEY", "")
 
-        # Route to Gemini TTS if voice is a Gemini voice and Gemini key is available, else WaveSpeed TTS
-        if gemini_key and (req.voice in GEMINI_VOICES or not ws_key):
+        # Free Edge TTS when selected or when no paid key exists; GoogleClient.generate_tts
+        # picks Edge automatically in those cases, otherwise Gemini.
+        free_tts = config.get("AUDIO_ENGINE") == FREE_TTS_ENGINE or not (gemini_key or ws_key)
+        if free_tts or (gemini_key and (req.voice in GEMINI_VOICES or not ws_key)):
             filename = f"tts_{uuid.uuid4().hex}.wav"
             out_path = os.path.join(TOOLS_DIR, filename)
             g_client = GoogleClient(config)

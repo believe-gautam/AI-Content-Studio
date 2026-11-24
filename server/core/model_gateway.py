@@ -23,7 +23,7 @@ class BaseModelProvider:
         return True
 
 class GeminiProvider(BaseModelProvider):
-    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash"):
+    def __init__(self, api_key: str, model_name: str = "gemini-3.5-flash"):
         super().__init__("Gemini")
         self.api_key = api_key
         self.model_name = model_name
@@ -95,6 +95,20 @@ class OpenAICompatibleProvider(BaseModelProvider):
             raise Exception(f"{self.name} returned no choices.")
         return choices[0].get("message", {}).get("content", "")
 
+class OmniRouteProvider(BaseModelProvider):
+    """Local OmniRoute router (free-only combo by default)."""
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__("OmniRoute")
+        self.config = config
+
+    def is_available(self) -> bool:
+        from api_clients import omniroute_configured
+        return omniroute_configured(self.config)
+
+    def generate_text(self, prompt: str, system_prompt: Optional[str] = None, **kwargs) -> str:
+        from api_clients import omniroute_chat
+        return omniroute_chat(self.config, prompt, system_prompt=system_prompt)
+
 class OllamaProvider(BaseModelProvider):
     def __init__(self, base_url: str = "http://localhost:11434", model_name: str = "llama3"):
         super().__init__("Ollama (Local)")
@@ -144,7 +158,7 @@ class ModelGateway:
         ollama_model = self.config.get("OLLAMA_MODEL", "llama3")
 
         self.providers: Dict[str, BaseModelProvider] = {
-            "gemini": GeminiProvider(gemini_key, model_name=self.config.get("GEMINI_MODEL", "gemini-2.5-flash")),
+            "gemini": GeminiProvider(gemini_key, model_name=self.config.get("GEMINI_MODEL", "gemini-3.5-flash")),
             "wavespeed": OpenAICompatibleProvider(
                 api_key=wavespeed_key,
                 base_url="https://api.wavespeed.ai/v1",
@@ -156,13 +170,17 @@ class ModelGateway:
                 base_url=self.config.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
                 model_name=self.config.get("OPENAI_MODEL", "gpt-4o-mini")
             ),
+            "omniroute": OmniRouteProvider(self.config),
             "ollama": OllamaProvider(base_url=ollama_url, model_name=ollama_model)
         }
 
     def get_preferred_order(self, task: str = "general") -> List[str]:
         engine_pref = self.config.get("TEXT_ENGINE", "Gemini API").lower()
-        if "gemini" in engine_pref:
-            order = ["gemini", "wavespeed", "openai", "ollama"]
+        if "omniroute" in engine_pref:
+            # Free-only: never fail over to paid providers.
+            order = ["omniroute", "ollama"]
+        elif "gemini" in engine_pref:
+            order = ["gemini", "omniroute", "wavespeed", "openai", "ollama"]
         elif "wavespeed" in engine_pref:
             order = ["wavespeed", "gemini", "openai", "ollama"]
         elif "ollama" in engine_pref or "local" in engine_pref:

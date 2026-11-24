@@ -209,7 +209,7 @@ class AutonomousStudioOrchestrator:
             # 1. Generate or synthesize audio for scene
             audio_path = os.path.join(output_dir, f"scene_{scene_num}.wav")
             audio_ok = False
-            if gemini_key:
+            if gemini_key or not ws_key or config.get("AUDIO_ENGINE") == "Edge TTS (Free)":
                 try:
                     g_client = GoogleClient(config)
                     g_client.generate_tts(narration, audio_path, {"SPEAKER1": config.get("SPEAKER1", "Kore"), "CONTENT_STYLE": "Narration"})

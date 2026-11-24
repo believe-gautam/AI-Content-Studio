@@ -116,6 +116,39 @@ export default function SettingsPage() {
               />
               <span className="text-[10px] text-zinc-500">Stock footage B-roll retrieval engine.</span>
             </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-bold text-zinc-300 uppercase tracking-wider">OmniRoute API Key</label>
+              <input 
+                type="password" 
+                value={config.OMNIROUTE_API_KEY || ""} 
+                onChange={e => updateConfig("OMNIROUTE_API_KEY", e.target.value)} 
+                className="modern-input" 
+                placeholder="sk-... from your OmniRoute dashboard" 
+              />
+              <span className="text-[10px] text-zinc-500">Free text AI through your OmniRoute router. Select &quot;OmniRoute&quot; as LLM Engine below.</span>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-bold text-zinc-300 uppercase tracking-wider">OmniRoute Address &amp; Combo</label>
+              <div className="grid grid-cols-2 gap-2">
+                <input 
+                  type="text" 
+                  value={config.OMNIROUTE_BASE_URL || ""} 
+                  onChange={e => updateConfig("OMNIROUTE_BASE_URL", e.target.value)} 
+                  className="modern-input" 
+                  placeholder="http://127.0.0.1:20128/api/v1" 
+                />
+                <input 
+                  type="text" 
+                  value={config.OMNIROUTE_MODEL || ""} 
+                  onChange={e => updateConfig("OMNIROUTE_MODEL", e.target.value)} 
+                  className="modern-input" 
+                  placeholder="gemini/gemini-3.5-flash, gemini/gemini-3-flash-preview" 
+                />
+              </div>
+              <span className="text-[10px] text-zinc-500">Model or combo name. Several models separated by commas are tried in order. Keep only free models here.</span>
+            </div>
           </div>
         </div>
 
@@ -134,7 +167,7 @@ export default function SettingsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="block text-[11px] font-bold text-zinc-300 uppercase tracking-wider">LLM Engine</label>
-              <TabSelect options={["Gemini API", "WaveSpeed AI", "Ollama"]} value={config.TEXT_ENGINE || "Gemini API"} onChange={v => updateConfig("TEXT_ENGINE", v)} />
+              <TabSelect options={["OmniRoute", "Gemini API", "WaveSpeed AI", "Ollama"]} value={config.TEXT_ENGINE || "Gemini API"} onChange={v => updateConfig("TEXT_ENGINE", v)} />
             </div>
 
             <div className="space-y-2">
@@ -144,7 +177,7 @@ export default function SettingsPage() {
 
             <div className="space-y-2">
               <label className="block text-[11px] font-bold text-zinc-300 uppercase tracking-wider">Audio TTS Engine</label>
-              <TabSelect options={["Gemini API", "WaveSpeed AI"]} value={config.AUDIO_ENGINE || "Gemini API"} onChange={v => updateConfig("AUDIO_ENGINE", v)} />
+              <TabSelect options={["Edge TTS (Free)", "Gemini API", "WaveSpeed AI"]} value={config.AUDIO_ENGINE || "Gemini API"} onChange={v => updateConfig("AUDIO_ENGINE", v)} />
             </div>
 
             <div className="space-y-2">

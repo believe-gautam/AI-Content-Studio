@@ -128,7 +128,7 @@ function CreatorStudioForm({ initialConfig }: { initialConfig: StudioConfig }) {
     try {
       const payload = {
         topic, start_point: startStep, content_style: contentStyle,
-        style, voice: audioEngine === "Gemini API" ? voice : elevenVoice, 
+        style, voice: audioEngine === "WaveSpeed AI" ? elevenVoice : voice, 
         audio_engine: audioEngine, video_engine: videoEngine, aspect_ratio: aspectRatio, bg_mode: bgMode,
         image_count: imageCount, video_count: videoCount,
         omnichannel, bg_music: bgMusic, auto_captions: autoCaptions,
@@ -282,11 +282,11 @@ function CreatorStudioForm({ initialConfig }: { initialConfig: StudioConfig }) {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-zinc-500 mb-2 uppercase tracking-wider">Audio Engine</label>
-                  <TabSelect options={["Gemini API", "WaveSpeed AI"]} value={audioEngine} onChange={setAudioEngine} />
+                  <TabSelect options={["Edge TTS (Free)", "Gemini API", "WaveSpeed AI"]} value={audioEngine} onChange={setAudioEngine} />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-zinc-500 mb-2 uppercase tracking-wider">Voice</label>
-                  {audioEngine === "Gemini API" ? (
+                  {audioEngine !== "WaveSpeed AI" ? (
                     <TabSelect options={["Kore", "Fenrir", "Charon", "Aoede", "Puck"]} value={voice} onChange={setVoice} />
                   ) : (
                     <input type="text" value={elevenVoice} onChange={e => setElevenVoice(e.target.value)} placeholder="e.g. Brian, Rachel, or ID" className="modern-input" />
@@ -312,7 +312,7 @@ function CreatorStudioForm({ initialConfig }: { initialConfig: StudioConfig }) {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-zinc-500 mb-2 uppercase tracking-wider">Background Mode</label>
-                  <TabSelect options={["AI Video", "Stock Video (Pixabay)"]} value={bgMode} onChange={setBgMode} />
+                  <TabSelect options={["Simple Background (Free)", "Stock Video (Pixabay)", "AI Video"]} value={bgMode} onChange={setBgMode} />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-zinc-500 mb-2 uppercase tracking-wider">Video Length</label>

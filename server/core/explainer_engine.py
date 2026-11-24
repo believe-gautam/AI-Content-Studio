@@ -180,7 +180,7 @@ Here is the transcript:
                         voice=self.voice
                     )
                 else:
-                    self.google_client.generate_tts(text, tts_path, {"SPEAKER1": self.voice})
+                    self.google_client.generate_tts(text, tts_path, {"SPEAKER1": self.voice, "AUDIO_ENGINE": self.audio_engine})
             
             # Get TTS duration
             probe = ffmpeg.probe(tts_path)
